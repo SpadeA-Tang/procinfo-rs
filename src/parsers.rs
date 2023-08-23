@@ -72,6 +72,7 @@ pub fn map_result<T>(result: IResult<&[u8], T>) -> Result<T> {
     }
 }
 
+
 /// Recognizes numerical characters: 0-9, and periods: '.'.
 fn fdigit(input: &[u8]) -> IResult<&[u8], &[u8]> {
     for idx in 0..input.len() {

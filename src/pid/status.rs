@@ -26,8 +26,6 @@ use parsers::{
 use parsers::parse_u16_octal;
 use pid::State;
 
-use crate::parsers::map_result_ignore_remaining;
-
 /// The Secure Computing state of a process.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum SeccompMode {
@@ -375,11 +373,7 @@ pub fn status_task(process_id: pid_t, thread_id: pid_t) -> Result<Status> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-
     use parsers::tests::unwrap;
-    use crate::{parsers::{map_result, map_result_ignore_remaining, read_to_end}, pid::status_task_with_tolerance};
-    
     use super::{SeccompMode, parse_status, status, status_self};
     use pid::State;
 
@@ -451,7 +445,7 @@ mod tests {
                             voluntary_ctxt_switches:\t242129\n\
                             nonvoluntary_ctxt_switches:\t1748\n";
 
-        let status = map_result(parse_status(status_text)).unwrap();
+        let status = unwrap(parse_status(status_text));
         assert_eq!("systemd", status.command);
         assert_eq!(18, status.umask);
         assert_eq!(State::Sleeping, status.state);
