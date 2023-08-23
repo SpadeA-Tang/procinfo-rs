@@ -186,6 +186,7 @@ pub struct Status {
     /// Number of involuntary context switches.
     pub nonvoluntary_ctxt_switches: u64,
     pub speculation_store_bypass: String,
+    pub speculation_indirect_branch: String,
 }
 
 /// Parse the status state format.
@@ -269,6 +270,7 @@ named!(parse_cpus_allowed_list<()>, chain!(tag!("Cpus_allowed_list:\t") ~ not_li
 named!(parse_mems_allowed_list<()>, chain!(tag!("Mems_allowed_list:\t") ~ not_line_ending ~ line_ending, || { () }));
 
 named!(parse_speculation_store_bypass<String>, delimited!(tag!("Speculation_Store_Bypass:\t"),   parse_line, line_ending));
+named!(parse_speculation_indirect_branch<String>, delimited!(tag!("SpeculationIndirectBranch:\t"),   parse_line, line_ending));
 named!(parse_voluntary_ctxt_switches<u64>,     delimited!(tag!("voluntary_ctxt_switches:\t"),    parse_u64,  line_ending));
 named!(parse_nonvoluntary_ctxt_switches<u64>,  delimited!(tag!("nonvoluntary_ctxt_switches:\t"), parse_u64,  line_ending));
 
@@ -344,6 +346,7 @@ fn parse_status(i: &[u8]) -> IResult<&[u8], Status> {
                | parse_voluntary_ctxt_switches    => { |value| status.voluntary_ctxt_switches    = value }
                | parse_nonvoluntary_ctxt_switches => { |value| status.nonvoluntary_ctxt_switches = value }
                | parse_speculation_store_bypass   => { |value| status.speculation_store_bypass   = value }
+               | parse_speculation_indirect_branch   => { |value| status.speculation_indirect_branch   = value }
             )
         ),
         { |_| { status }})
@@ -370,24 +373,12 @@ pub fn status_task(process_id: pid_t, thread_id: pid_t) -> Result<Status> {
     status_file(&mut File::open(&format!("/proc/{}/task/{}/status", process_id, thread_id))?)
 }
 
-/// Returns memory status information from the thread with the provided parent process ID and thread ID.
-/// Unlike status_task, it allows not to parse all bytes of status file to be able to compatible with 
-/// status file changing.
-pub fn status_task_with_tolerance(process_id: pid_t, thread_id: pid_t) -> Result<Status> {
-    let mut buf = [0; 2048]; // A typical status file is about 1000 bytes
-    map_result_ignore_remaining(parse_status(try!(read_to_end(
-        &mut try!(File::open(&format!(
-            "/proc/{}/task/{}/status",
-            process_id, thread_id
-        ))),
-        &mut buf
-    ))))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+
     use parsers::tests::unwrap;
-    use crate::parsers::{map_result, map_result_ignore_remaining};
+    use crate::{parsers::{map_result, map_result_ignore_remaining, read_to_end}, pid::status_task_with_tolerance};
     
     use super::{SeccompMode, parse_status, status, status_self};
     use pid::State;
@@ -452,6 +443,7 @@ mod tests {
                             Seccomp:\t0\n\
                             Seccomp_filters:\t0\n\
                             Speculation_Store_Bypass:\tthread vulnerable\n\
+                            SpeculationIndirectBranch:\tconditional enabled\n\
                             Cpus_allowed:\tffff\n\
                             Cpus_allowed_list:\t0-15\n\
                             Mems_allowed:\t00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001\n\
@@ -518,23 +510,13 @@ mod tests {
         assert_eq!(SeccompMode::Disabled, status.seccomp);
         assert_eq!(0, status.seccomp_filters);
         assert_eq!("thread vulnerable".as_bytes(), status.speculation_store_bypass.as_bytes());
+        assert_eq!("conditional enabled".as_bytes(), status.speculation_indirect_branch.as_bytes());
         assert_eq!(&[0xff, 0xff, 0x00, 0x00], &*status.cpus_allowed);
         let mems_allowed: &mut [u8] = &mut [0; 64];
         mems_allowed[0] = 0x80;
         assert_eq!(mems_allowed, &*status.mems_allowed);
         assert_eq!(242129, status.voluntary_ctxt_switches);
         assert_eq!(1748, status.nonvoluntary_ctxt_switches);
-    }
-
-    #[test]
-    fn test_parse_with_unrecognized_bytes() {
-        let status_text = b"Name:\tsystemd\n\
-                            Umask:\t0022\n\
-                            Unrecognized:\txxx\n";
-
-        let status = map_result_ignore_remaining(parse_status(status_text)).unwrap();
-        assert_eq!("systemd", status.command);
-        assert_eq!(18, status.umask);
     }
 }
 
